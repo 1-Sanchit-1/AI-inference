@@ -1,0 +1,147 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "${OLLAMA_HOST_PORT:-11434}:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  ollama-pull:
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: "ollama:11434"
+    entrypoint: ["ollama", "pull", "${OLLAMA_MODEL:-qwen2.5:1.5b}"]
+    restart: "no"
+
+  qdrant:
+    image: qdrant/qdrant:v1.11.3
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/6333'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  rag-app:
+    build:
+      context: ./applications/rag-app
+    ports:
+      - "${RAG_APP_HOST_PORT:-8001}:8001"
+    environment:
+      QDRANT_URL: "http://qdrant:6333"
+      QDRANT_COLLECTION: "documents"
+      VLLM_BASE_URL: "http://ollama:11434/v1"
+      VLLM_MODEL: "${OLLAMA_MODEL:-qwen2.5:1.5b}"
+      VLLM_API_KEY: "ollama"
+      EMBEDDING_MODEL: "BAAI/bge-small-en-v1.5"
+      EMBEDDING_DIM: "384"
+      OTEL_SERVICE_NAME: "rag-app"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      ollama-pull:
+        condition: service_completed_successfully
+
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    ports:
+      - "${OPEN_WEBUI_HOST_PORT:-8080}:8080"
+    environment:
+      OLLAMA_BASE_URL: "http://ollama:11434"
+      WEBUI_AUTH: "true"
+    volumes:
+      - open_webui_data:/app/backend/data
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    profiles: ["observability"]
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deploy/docker/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    profiles: ["observability"]
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: "admin"
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:-admin}"
+    volumes:
+      - ./deploy/docker/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/docker/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+
+  loki:
+    image: grafana/loki:3.1.1
+    profiles: ["observability"]
+    ports:
+      - "3100:3100"
+    command: ["-config.file=/etc/loki/loki-config.yaml"]
+    volumes:
+      - ./deploy/docker/loki-config.yaml:/etc/loki/loki-config.yaml:ro
+      - loki_data:/loki
+
+  promtail:
+    image: grafana/promtail:3.1.1
+    profiles: ["observability"]
+    command: ["-config.file=/etc/promtail/promtail-config.yaml"]
+    volumes:
+      - ./deploy/docker/promtail-config.yaml:/etc/promtail/promtail-config.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    depends_on:
+      - loki
+
+  tempo:
+    image: grafana/tempo:2.6.0
+    profiles: ["observability"]
+    ports:
+      - "3200:3200"
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    volumes:
+      - ./deploy/docker/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo_data:/var/tempo
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.110.0
+    profiles: ["observability"]
+    command: ["--config=/etc/otel/otel-collector-config.yaml"]
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    volumes:
+      - ./deploy/docker/otel-collector-config.yaml:/etc/otel/otel-collector-config.yaml:ro
+    depends_on:
+      - tempo
+
+volumes:
+  ollama_data:
+  qdrant_data:
+  open_webui_data:
+  prometheus_data:
+  grafana_data:
+  loki_data:
+  tempo_data:
