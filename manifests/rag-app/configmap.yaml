@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rag-app-config
+  namespace: ai-platform
+data:
+  QDRANT_URL: "http://qdrant.ai-platform.svc.cluster.local:6333"
+  QDRANT_COLLECTION: "documents"
+  VLLM_BASE_URL: "http://vllm.ai-platform.svc.cluster.local:8000/v1"
+  VLLM_MODEL: "Qwen/Qwen2.5-7B-Instruct"
+  EMBEDDING_MODEL: "BAAI/bge-small-en-v1.5"
+  EMBEDDING_DIM: "384"
+  OTEL_SERVICE_NAME: "rag-app"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.observability.svc.cluster.local:4317"
