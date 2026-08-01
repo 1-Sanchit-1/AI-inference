@@ -1,0 +1,71 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-provider
+  namespace: observability
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: ai-platform
+        orgId: 1
+        folder: "AI Platform"
+        type: file
+        disableDeletion: false
+        updateIntervalSeconds: 30
+        options:
+          path: /var/lib/grafana/dashboards
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-ai-platform
+  namespace: observability
+data:
+  ai-platform.json: |
+    {
+      "title": "AI Platform Overview",
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "panels": [
+        {
+          "id": 1,
+          "title": "vLLM request rate",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+          "targets": [
+            { "expr": "sum(rate(vllm_request_success_total[5m]))", "refId": "A" }
+          ]
+        },
+        {
+          "id": 2,
+          "title": "RAG app request latency (p95)",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job=\"rag-app\"}[5m])) by (le))",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "title": "GPU memory utilization",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+          "targets": [
+            { "expr": "DCGM_FI_DEV_MEM_COPY_UTIL", "refId": "A" }
+          ]
+        },
+        {
+          "id": 4,
+          "title": "Qdrant collection points",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+          "targets": [
+            { "expr": "qdrant_collection_points_total", "refId": "A" }
+          ]
+        }
+      ]
+    }
