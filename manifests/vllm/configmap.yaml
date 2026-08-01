@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vllm-config
+  namespace: ai-platform
+data:
+  MODEL_NAME: "Qwen/Qwen2.5-7B-Instruct"
+  MAX_MODEL_LEN: "8192"
+  GPU_MEMORY_UTILIZATION: "0.90"
+  DTYPE: "auto"
