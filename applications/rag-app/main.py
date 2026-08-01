@@ -1,7 +1,7 @@
 import logging
 import uuid
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastembed import TextEmbedding
 from openai import OpenAI
 from prometheus_fastapi_instrumentator import Instrumentator
@@ -11,7 +11,10 @@ from qdrant_client.http import models as qmodels
 
 from chunking import chunk_text
 from config import settings
+from extraction import extract_text
 from telemetry import setup_tracing
+
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("rag-app")
@@ -72,10 +75,9 @@ def health() -> dict:
     return {"status": "ok"}
 
 
-@app.post("/ingest", response_model=IngestResponse)
-def ingest(request: IngestRequest) -> IngestResponse:
+def _ingest_text(text: str, source: str) -> int:
     chunks = chunk_text(
-        request.text,
+        text,
         chunk_size_words=settings.chunk_size_words,
         overlap_words=settings.chunk_overlap_words,
     )
@@ -87,18 +89,55 @@ def ingest(request: IngestRequest) -> IngestResponse:
         qmodels.PointStruct(
             id=str(uuid.uuid4()),
             vector=vector.tolist(),
-            payload={"text": chunk, "source": request.source},
+            payload={"text": chunk, "source": source},
         )
         for chunk, vector in zip(chunks, vectors)
     ]
 
     qdrant.upsert(collection_name=settings.qdrant_collection, points=points)
-    return IngestResponse(source=request.source, chunks_ingested=len(points))
+    return len(points)
+
+
+@app.post("/ingest", response_model=IngestResponse)
+def ingest(request: IngestRequest) -> IngestResponse:
+    count = _ingest_text(request.text, request.source)
+    return IngestResponse(source=request.source, chunks_ingested=count)
+
+
+@app.post("/ingest/file", response_model=IngestResponse)
+async def ingest_file(
+    file: UploadFile = File(...),
+    source: str | None = Form(default=None),
+) -> IngestResponse:
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Uploaded file has no filename")
+
+    content = await file.read()
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)}MB upload limit",
+        )
+
+    try:
+        text = extract_text(file.filename, content)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if not text.strip():
+        raise HTTPException(status_code=400, detail="No extractable text found in file")
+
+    resolved_source = source or file.filename
+    count = _ingest_text(text, resolved_source)
+    return IngestResponse(source=resolved_source, chunks_ingested=count)
 
 
 @app.post("/query", response_model=QueryResponse)
 def query(request: QueryRequest) -> QueryResponse:
-    query_vector = next(embedder.embed([request.question])).tolist()
+    question_vectors = list(embedder.embed([request.question]))
+    if not question_vectors:
+        raise HTTPException(status_code=500, detail="Failed to embed the question")
+    query_vector = question_vectors[0].tolist()
 
     hits = qdrant.search(
         collection_name=settings.qdrant_collection,
