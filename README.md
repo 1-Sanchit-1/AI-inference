@@ -56,11 +56,11 @@ This starts Ollama (pulls the model on first run), Qdrant, the RAG app, and
 Open WebUI:
 
 | Service | Default URL | Override via |
-|---|---|---|
-| Open WebUI (chat) | http://localhost:8080 | `OPEN_WEBUI_HOST_PORT` |
-| RAG app | http://localhost:8001 | `RAG_APP_HOST_PORT` |
-| Qdrant dashboard | http://localhost:6333/dashboard | — |
-| Ollama API | http://localhost:11434 | `OLLAMA_HOST_PORT` |
+| --- | --- | --- |
+| Open WebUI (chat) | <http://localhost:8080> | `OPEN_WEBUI_HOST_PORT` |
+| RAG app | <http://localhost:8001> | `RAG_APP_HOST_PORT` |
+| Qdrant dashboard | <http://localhost:6333/dashboard> | — |
+| Ollama API | <http://localhost:11434> | `OLLAMA_HOST_PORT` |
 
 If a port is already taken by something else on your machine (e.g. another
 service already listening on 8001/8080/11434), set the corresponding
@@ -84,7 +84,7 @@ Add the full observability stack (Prometheus, Grafana, Loki, Tempo, OTel Collect
 docker compose --profile observability up -d
 ```
 
-Grafana: http://localhost:3000 (`admin` / value of `GRAFANA_ADMIN_PASSWORD`, default `admin`).
+Grafana: <http://localhost:3000> (`admin` / value of `GRAFANA_ADMIN_PASSWORD`, default `admin`).
 
 Stop everything: `docker compose down` (add `--volumes` to also wipe model/data volumes).
 
@@ -109,10 +109,10 @@ troubleshooting notes.
 The RAG service (`applications/rag-app`) exposes:
 
 | Endpoint | Method | Description |
-|---|---|---|
+| --- | --- | --- |
 | `/health` | GET | Liveness/readiness check |
 | `/ingest` | POST | Chunk, embed, and store raw text in Qdrant |
-| `/ingest/file` | POST | Upload a `.txt`, `.md`, `.pdf`, or `.docx` file (multipart) — extracts text, then chunks/embeds/stores it the same way |
+| `/ingest/file` | POST | Upload a `.txt`, `.md`, `.pdf`, `.docx`, or image (`.png`/`.jpg`/`.jpeg`/`.tiff`/`.bmp`) file (multipart) — extracts text, then chunks/embeds/stores it the same way |
 | `/query` | POST | Embed a question, retrieve context from Qdrant, generate a grounded answer via the configured OpenAI-compatible backend (vLLM or Ollama) |
 | `/metrics` | GET | Prometheus metrics |
 
@@ -130,7 +130,17 @@ Example — a file:
 curl -X POST localhost:8001/ingest/file -F "file=@notes.pdf"
 ```
 
-Bulk-ingest a whole folder of `.txt`/`.md`/`.pdf`/`.docx` files:
+Scanned PDFs and images are OCR'd automatically (via `pytesseract`): if a
+PDF's embedded text layer is missing or too sparse (e.g. under ~20
+characters/page), each page is rasterized and OCR'd instead; image uploads
+are always OCR'd. Force OCR even when a PDF *does* have some text (e.g. a
+mostly-scanned doc with a stray text watermark) with `force_ocr=true`:
+
+```bash
+curl -X POST localhost:8001/ingest/file -F "file=@scan.pdf" -F "force_ocr=true"
+```
+
+Bulk-ingest a whole folder of `.txt`/`.md`/`.pdf`/`.docx`/image files:
 
 ```bash
 ./scripts/ingest-directory.sh ./my-documents
@@ -148,7 +158,3 @@ curl -X POST localhost:8001/query \
 directly in Open WebUI talks straight to Ollama/vLLM and has no awareness of
 anything ingested here — see [`docs/architecture.md`](docs/architecture.md)
 for the current request flow.
-
-## License
-
-[MIT](LICENSE)

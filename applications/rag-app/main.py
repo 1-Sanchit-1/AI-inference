@@ -108,6 +108,7 @@ def ingest(request: IngestRequest) -> IngestResponse:
 async def ingest_file(
     file: UploadFile = File(...),
     source: str | None = Form(default=None),
+    force_ocr: bool = Form(default=False),
 ) -> IngestResponse:
     if not file.filename:
         raise HTTPException(status_code=400, detail="Uploaded file has no filename")
@@ -120,7 +121,7 @@ async def ingest_file(
         )
 
     try:
-        text = extract_text(file.filename, content)
+        text = extract_text(file.filename, content, force_ocr=force_ocr)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

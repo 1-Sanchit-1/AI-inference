@@ -6,7 +6,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl build-essential \
+    && apt-get install -y --no-install-recommends curl build-essential tesseract-ocr tesseract-ocr-eng \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
