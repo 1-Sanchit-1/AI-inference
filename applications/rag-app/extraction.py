@@ -16,7 +16,14 @@ SUPPORTED_EXTENSIONS = {".txt", ".md", ".pdf", ".docx"} | IMAGE_EXTENSIONS
 # absent (e.g. a scanned document) and OCR is used instead.
 MIN_CHARS_PER_PAGE_BEFORE_OCR = 20
 
-OCR_RENDER_DPI = 300
+# 200dpi is enough for tesseract to do a good job on typical scanned text
+# while keeping per-page memory use manageable on a CPU-only laptop.
+OCR_RENDER_DPI = 200
+
+# Rendering + OCR-ing a page at a time is still O(pages) memory/time; cap it
+# so a large or accidentally force_ocr'd PDF fails fast with a clear error
+# instead of exhausting memory (this previously OOM-killed the container).
+MAX_OCR_PAGES = 30
 
 
 def extract_text(filename: str, content: bytes, force_ocr: bool = False) -> str:
@@ -69,13 +76,23 @@ def _extract_pdf(content: bytes, force_ocr: bool = False) -> str:
 def _ocr_pdf(content: bytes) -> str:
     doc = fitz.open(stream=content, filetype="pdf")
     try:
+        if len(doc) > MAX_OCR_PAGES:
+            raise ValueError(
+                f"PDF has {len(doc)} pages, which exceeds the {MAX_OCR_PAGES}-page OCR limit. "
+                "Split it into smaller files and ingest each separately."
+            )
+
         page_texts = []
         for page in doc:
             pixmap = page.get_pixmap(dpi=OCR_RENDER_DPI)
-            image = Image.open(io.BytesIO(pixmap.tobytes("png")))
-            page_text = pytesseract.image_to_string(image)
+            # Release the rasterized page before moving to the next one
+            # rather than waiting for GC — pixmaps/images add up fast, and
+            # the `with` guarantees the image is closed even if OCR raises.
+            with Image.open(io.BytesIO(pixmap.tobytes("png"))) as image:
+                page_text = pytesseract.image_to_string(image)
             if page_text.strip():
                 page_texts.append(page_text)
+            pixmap = None
         return "\n\n".join(page_texts)
     finally:
         doc.close()

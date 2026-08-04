@@ -140,6 +140,10 @@ mostly-scanned doc with a stray text watermark) with `force_ocr=true`:
 curl -X POST localhost:8001/ingest/file -F "file=@scan.pdf" -F "force_ocr=true"
 ```
 
+OCR'd PDFs are capped at 30 pages per request (each page is rasterized in
+memory) — split larger documents before ingesting. Requests exceeding the
+cap fail fast with a 400 rather than risking an out-of-memory crash.
+
 Bulk-ingest a whole folder of `.txt`/`.md`/`.pdf`/`.docx`/image files:
 
 ```bash

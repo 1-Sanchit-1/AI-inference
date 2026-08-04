@@ -39,6 +39,7 @@ services:
       context: ./applications/rag-app
     ports:
       - "${RAG_APP_HOST_PORT:-8001}:8001"
+    mem_limit: 2g
     environment:
       QDRANT_URL: "http://qdrant:6333"
       QDRANT_COLLECTION: "documents"

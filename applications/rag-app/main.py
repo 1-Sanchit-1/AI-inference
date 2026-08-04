@@ -105,15 +105,19 @@ def ingest(request: IngestRequest) -> IngestResponse:
 
 
 @app.post("/ingest/file", response_model=IngestResponse)
-async def ingest_file(
+def ingest_file(
     file: UploadFile = File(...),
     source: str | None = Form(default=None),
     force_ocr: bool = Form(default=False),
 ) -> IngestResponse:
+    # Deliberately a sync def: extraction/OCR/embedding below are all
+    # blocking CPU work. FastAPI runs sync handlers in a worker thread, so
+    # this can't freeze the event loop (and /health) the way it would if
+    # this were `async def` calling the same blocking code inline.
     if not file.filename:
         raise HTTPException(status_code=400, detail="Uploaded file has no filename")
 
-    content = await file.read()
+    content = file.file.read()
     if len(content) > MAX_UPLOAD_BYTES:
         raise HTTPException(
             status_code=413,
@@ -123,9 +127,11 @@ async def ingest_file(
     try:
         text = extract_text(file.filename, content, force_ocr=force_ocr)
     except ValueError as exc:
+        logger.warning("Ingestion of '%s' failed: %s", file.filename, exc)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     if not text.strip():
+        logger.warning("Ingestion of '%s' failed: no extractable text found", file.filename)
         raise HTTPException(status_code=400, detail="No extractable text found in file")
 
     resolved_source = source or file.filename
